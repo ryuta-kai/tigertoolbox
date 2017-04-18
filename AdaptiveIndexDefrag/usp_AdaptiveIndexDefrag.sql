@@ -1504,6 +1504,10 @@ CHAR(10) + 'WHERE mst.is_ms_shipped = 0 ' + CASE WHEN @dbScope IS NULL AND @tblN
 				RAISERROR('    Getting columnstore indexes...', 0, 42) WITH NOWAIT;
 				IF @sqlmajorver >= 12
 				BEGIN
+					-- Copy sys.column_store_row_groups to temporary table for performance reason
+					IF EXISTS (SELECT [object_id] FROM tempdb.sys.objects (NOLOCK) WHERE [object_id] = OBJECT_ID('tempdb.dbo.#sys_column_store_row_groups'))
+					DROP TABLE #sys_column_store_row_groups;
+					SELECT * INTO #sys_column_store_row_groups FROM sys.column_store_row_groups;
 					WHILE (SELECT COUNT(*) FROM #tblIndexDefragScanWorking WHERE is_done = 0 AND [type] IN (5,6)) > 0
 					BEGIN
 						SELECT TOP 1 @objectID = objectID, @indexID = indexID, @partitionNumber = partitionNumber
@@ -1511,7 +1515,7 @@ CHAR(10) + 'WHERE mst.is_ms_shipped = 0 ' + CASE WHEN @dbScope IS NULL AND @tblN
 
 						BEGIN TRY
 							SELECT @ColumnStoreGetIXSQL = 'USE [' + DB_NAME(@dbID) + ']; SELECT @dbID_In, DB_NAME(@dbID_In), rg.object_id, rg.index_id, rg.partition_number, SUM((ISNULL(rg.deleted_rows,1)*100)/rg.total_rows) AS [fragmentation], SUM(ISNULL(rg.size_in_bytes,1)/1024/8) AS [simulated_page_count], SUM(rg.total_rows) AS total_rows, GETDATE() AS [scanDate]	
-FROM sys.column_store_row_groups rg 
+FROM #sys_column_store_row_groups rg 
 WHERE rg.object_id = @objectID_In
 	AND rg.index_id = @indexID_In
 	AND rg.partition_number = @partitionNumber_In
@@ -2758,6 +2762,8 @@ WHERE system_type_id IN (34, 35, 99) ' + CASE WHEN @sqlmajorver < 11 THEN 'OR ma
 	DROP TABLE #tblIndexDefragScanWorking;
 	IF EXISTS (SELECT [object_id] FROM tempdb.sys.objects (NOLOCK) WHERE [object_id] = OBJECT_ID('tempdb.dbo.#tblIndexFindInDatabaseList'))
 	DROP TABLE #tblIndexFindInDatabaseList;
+	IF EXISTS (SELECT [object_id] FROM tempdb.sys.objects (NOLOCK) WHERE [object_id] = OBJECT_ID('tempdb.dbo.#sys_column_store_row_groups'))
+	DROP TABLE #sys_column_store_row_groups;
 
 	IF @debugMode = 1
 	RAISERROR('All done!', 0, 42) WITH NOWAIT;
